@@ -79,21 +79,20 @@ Statement *parse_statement(Parser *p) {
     }
 }
 
+// Helper
+char *parser_str_copy(const char *s) {
+    if (!s) return NULL;
+    char *d = malloc(strlen(s) + 1);
+    if (d) strcpy(d, s);
+    return d;
+}
+
 LetStatement *parse_let_statement(Parser *p) {
     // 1. Copy current token for AST constructor (since next_token_parser will free it)
     Token letTok = p->cur_token;
-    // We must manually duplicate the literal string if AST constructor doesn't.
-    // AST constructor (new_let_statement) currently shallow copies Token struct.
-    // So letTok.literal points to memory owned by Parser.
-    // When parser advances, it frees that memory.
-    // So AST has dangling pointer.
-    // FIX: We must strdup strictly for AST usage here if AST constructor is shallow.
-    // Let's modify AST constructors to strdup inside ast.c? No, let's do it here.
-    // But modifying ast.c is cleaner.
-    // For now, let's strdup here.
     
     Token astLetTok = letTok;
-    if (letTok.literal) astLetTok.literal = strdup(letTok.literal);
+    if (letTok.literal) astLetTok.literal = parser_str_copy(letTok.literal);
     
     if (!expect_peek(p, TOKEN_IDENT)) {
         // Cleanup if failed
@@ -102,18 +101,13 @@ LetStatement *parse_let_statement(Parser *p) {
     }
     
     Token identTok = p->cur_token;
-    // Same issue, duplicate literal for AST
-    // new_identifier duplicates 'value' but shallow copies 'token'.
-    // We should duplicate token literal too.
     Token astIdentTok = identTok;
-    if (identTok.literal) astIdentTok.literal = strdup(identTok.literal);
+    if (identTok.literal) astIdentTok.literal = parser_str_copy(identTok.literal);
     
     Identifier *name = new_identifier(astIdentTok, identTok.literal);
     
     if (!expect_peek(p, TOKEN_ASSIGN)) {
         // Cleanup
-        // Identifier destructor frees its token literal and value.
-        // So we just free the let token literal we duplicated.
         if (astLetTok.literal) free(astLetTok.literal);
         name->base.free((ASTNode*)name);
         return NULL;
@@ -133,7 +127,7 @@ LetStatement *parse_let_statement(Parser *p) {
 ReturnStatement *parse_return_statement(Parser *p) {
     Token retTok = p->cur_token;
     Token astRetTok = retTok;
-    if (retTok.literal) astRetTok.literal = strdup(retTok.literal);
+    if (retTok.literal) astRetTok.literal = parser_str_copy(retTok.literal);
 
     next_token_parser(p);
     
