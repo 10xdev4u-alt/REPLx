@@ -20,7 +20,12 @@ Parser *new_parser(Lexer *l) {
     p->errors = malloc(sizeof(char*) * p->error_capacity);
     
     // Read two tokens
-    next_token_parser(p);
+    p->cur_token.type = TOKEN_ILLEGAL;
+    p->cur_token.literal = NULL;
+    p->peek_token.type = TOKEN_ILLEGAL;
+    p->peek_token.literal = NULL;
+
+    p->peek_token = next_token(p->l);
     next_token_parser(p);
     
     return p;
@@ -31,79 +36,24 @@ void free_parser(Parser *p) {
         free(p->errors[i]);
     }
     free(p->errors);
-    // Tokens in parser are copies (literals are malloced).
-    // cur_token and peek_token hold literals that need freeing?
-    // In next_token_parser, we assign p->cur_token = p->peek_token.
-    // If we free cur_token's literal before overwriting, we are good.
-    // But initially?
-    // Wait, Lexer returns Token with malloced literal.
-    // Parser takes ownership.
     if (p->cur_token.literal) free(p->cur_token.literal);
     if (p->peek_token.literal) free(p->peek_token.literal);
     free(p);
 }
 
 void next_token_parser(Parser *p) {
-    // Free current token literal before overwriting?
-    // Wait, if we use it in AST, we transfer ownership?
-    // Yes, AST nodes take ownership of token.
-    // So if AST node is created, it takes the token.
-    // If not, we must free it.
-    // This is tricky in C.
-    // Strategy: AST constructors take Token (struct copy).
-    // If we successfully parse, the AST node owns the literal pointer.
-    // If we skip/error, we must free the literal pointer.
-    
-    // For now, let's assume valid parse transfers ownership.
-    // But what about p->cur_token which is being overwritten?
-    // If it wasn't used, we leak.
-    // Ideally, we'd have a flag or just duplicate string for AST and always free token here?
-    // Duplicating is safer but slower.
-    // Let's implement AST taking ownership (copy struct, keep pointer).
-    // And here, we define that if cur_token was NOT consumed, we free it.
-    // But how do we know?
-    // Simpler: Parser always frees its copy of token when advancing,
-    // AND AST always strdup's the literal.
-    // This is "Zero-Ownership Transfer" - everyone owns their copy.
-    // Much safer for this stage.
-    
+    // If we advance, we overwrite cur_token.
+    // If cur_token.literal was malloced and not moved to AST, we must free it.
+    // However, tracking ownership is hard.
+    // Let's assume AST functions COPY the literal string.
+    // So Parser ALWAYS frees cur_token.literal before overwriting.
     if (p->cur_token.literal) {
-         free(p->cur_token.literal); 
+        free(p->cur_token.literal);
     }
     
     p->cur_token = p->peek_token;
     p->peek_token = next_token(p->l);
-    // peek_token.literal is fresh malloc from lexer.
 }
-
-// But wait! AST constructors in ast.c currently take Token and do NOT strdup the literal in all cases?
-// identifier_token_literal returns ast_str_copy(i->token.literal).
-// identifier_string returns ast_str_copy(i->value).
-// new_identifier takes Token t.
-// It stores it: i->token = t;
-// And i->value = ast_str_copy(value).
-// So AST owns the pointer in t.literal.
-// If Parser frees p->cur_token.literal, AST has dangling pointer.
-// FIX: In next_token_parser, we should NOT free if AST took it.
-// To make this simple:
-// AST constructors should STRDUP the literal found in the token, so they own their own copy.
-// Then Parser can always free its token.
-// Let's check ast.c:
-// new_let_statement: ls->token = token; (Shallow copy)
-// This means AST shares the pointer.
-// So Parser MUST NOT free it if AST took it.
-// This is hard to track.
-// ALTERNATIVE: AST constructors strdup the literal.
-// Then Parser ALWAYS frees.
-// I will modify ast.c later or now?
-// Let's modify Parser to StrDup for AST? No, AST constructor should do it.
-// Let's modify ast.c to duplicate token literal in constructors.
-// OR: Let's make `next_token_parser` perform a deep copy for `p->peek_token`?
-// No, Lexer returns malloced string.
-// Let's stick to: Parser owns the token from Lexer.
-// When creating AST, we pass the Token.
-// If AST takes ownership, we should NULL out Parser's pointer so it doesn't double free?
-// Yes, manually NULLing out literals in Parser after passing to AST is a common C pattern.
 
 Program *parse_program(Parser *p) {
     Program *program = new_program();
@@ -112,11 +62,8 @@ Program *parse_program(Parser *p) {
         Statement *stmt = parse_statement(p);
         if (stmt) {
             program_append(program, stmt);
-        } else {
-             // If statement failed, we might need to skip token?
-             // parse_statement advances tokens usually.
-             next_token_parser(p);
         }
+        next_token_parser(p);
     }
     return program;
 }
@@ -133,35 +80,51 @@ Statement *parse_statement(Parser *p) {
 }
 
 LetStatement *parse_let_statement(Parser *p) {
-    // We are at LET.
-    // Create struct.
-    // We need to pass the token. 
-    // We want AST to own the literal.
-    // So we NULL out p->cur_token.literal so next_token_parser doesn't free it?
-    // Wait, I haven't implemented that logic in next_token_parser yet.
-    // Let's do the "AST copies" approach. It is safer.
-    // I will update ast.c to strdup token literal.
+    // 1. Copy current token for AST constructor (since next_token_parser will free it)
+    Token letTok = p->cur_token;
+    // We must manually duplicate the literal string if AST constructor doesn't.
+    // AST constructor (new_let_statement) currently shallow copies Token struct.
+    // So letTok.literal points to memory owned by Parser.
+    // When parser advances, it frees that memory.
+    // So AST has dangling pointer.
+    // FIX: We must strdup strictly for AST usage here if AST constructor is shallow.
+    // Let's modify AST constructors to strdup inside ast.c? No, let's do it here.
+    // But modifying ast.c is cleaner.
+    // For now, let's strdup here.
     
-    Token letTok = p->cur_token; // Copy struct
-    // AST constructor will (eventually) copy string.
+    Token astLetTok = letTok;
+    if (letTok.literal) astLetTok.literal = strdup(letTok.literal);
     
     if (!expect_peek(p, TOKEN_IDENT)) {
+        // Cleanup if failed
+        if (astLetTok.literal) free(astLetTok.literal);
         return NULL;
     }
     
     Token identTok = p->cur_token;
-    Identifier *name = new_identifier(identTok, identTok.literal);
+    // Same issue, duplicate literal for AST
+    // new_identifier duplicates 'value' but shallow copies 'token'.
+    // We should duplicate token literal too.
+    Token astIdentTok = identTok;
+    if (identTok.literal) astIdentTok.literal = strdup(identTok.literal);
+    
+    Identifier *name = new_identifier(astIdentTok, identTok.literal);
     
     if (!expect_peek(p, TOKEN_ASSIGN)) {
-        return NULL; // Leak name? Yes.
+        // Cleanup
+        // Identifier destructor frees its token literal and value.
+        // So we just free the let token literal we duplicated.
+        if (astLetTok.literal) free(astLetTok.literal);
+        name->base.free((ASTNode*)name);
+        return NULL;
     }
     
-    // TODO: Expression parsing
-    while (p->cur_token.type != TOKEN_SEMICOLON) {
+    // Skip until semicolon
+    while (p->cur_token.type != TOKEN_SEMICOLON && p->cur_token.type != TOKEN_EOF) {
         next_token_parser(p);
     }
     
-    LetStatement *stmt = new_let_statement(letTok);
+    LetStatement *stmt = new_let_statement(astLetTok);
     stmt->name = name;
     
     return stmt;
@@ -169,23 +132,22 @@ LetStatement *parse_let_statement(Parser *p) {
 
 ReturnStatement *parse_return_statement(Parser *p) {
     Token retTok = p->cur_token;
-    
+    Token astRetTok = retTok;
+    if (retTok.literal) astRetTok.literal = strdup(retTok.literal);
+
     next_token_parser(p);
     
-    while (p->cur_token.type != TOKEN_SEMICOLON) {
+    while (p->cur_token.type != TOKEN_SEMICOLON && p->cur_token.type != TOKEN_EOF) {
         next_token_parser(p);
     }
     
-    return new_return_statement(retTok);
+    return new_return_statement(astRetTok);
 }
 
 ExpressionStatement *parse_expression_statement(Parser *p) {
-    // Placeholder
-    // Consume until semicolon
-     while (p->cur_token.type != TOKEN_SEMICOLON && p->cur_token.type != TOKEN_EOF) {
-        next_token_parser(p);
-    }
-    return NULL;
+    // Placeholder: consume tokens to avoid infinite loop
+    // But return NULL for now as we don't have Expressions
+    return NULL; 
 }
 
 int expect_peek(Parser *p, TokenType t) {
