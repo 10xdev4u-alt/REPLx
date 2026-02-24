@@ -7,7 +7,7 @@ import (
 
 	"github.com/chzyer/readline"
 	"github.com/princetheprogrammerbtw/replngne/go/lexer"
-	"github.com/princetheprogrammerbtw/replngne/go/token"
+	"github.com/princetheprogrammerbtw/replngne/go/parser"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 	}
 	defer rl.Close()
 
-	fmt.Println("REPLngne (Go Edition) - v0.1.0")
+	fmt.Println("REPLngne (Go Edition) - v0.2.0 (Parser Active)")
 	fmt.Println("Type 'exit' or Ctrl+D to quit")
 
 	for {
@@ -39,13 +39,24 @@ func main() {
 		}
 
 		l := lexer.New(line)
-		for {
-			tok := l.NextToken()
-			if tok.Type == token.EOF {
-				break
-			}
-			fmt.Printf("%+v\n", tok)
+		p := parser.New(l)
+		program := p.ParseProgram()
+
+		if len(p.Errors()) != 0 {
+			printParserErrors(os.Stdout, p.Errors())
+			continue
+		}
+
+		if program != nil {
+			io.WriteString(os.Stdout, program.String()+"\n")
 		}
 	}
 	os.Exit(0)
+}
+
+func printParserErrors(out io.Writer, errors []string) {
+	io.WriteString(out, "Parser errors:\n")
+	for _, msg := range errors {
+		io.WriteString(out, "\t"+msg+"\n")
+	}
 }
