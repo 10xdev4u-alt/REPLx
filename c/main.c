@@ -64,7 +64,7 @@ int main() {
         do {
             tok = next_token(l);
             printf("{Type: %s, Literal: %s}\n", token_type_to_string(tok.type), tok.literal);
-            if (tok.type != TOKEN_EOF) {
+            if (tok.literal) {
                 free(tok.literal);
             }
         } while (tok.type != TOKEN_EOF);
