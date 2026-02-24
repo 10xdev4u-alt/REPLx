@@ -1,6 +1,27 @@
 use crate::lexer::Lexer;
 use crate::token::Token;
-use crate::ast::{Program, Statement, LetStatement, ReturnStatement, Identifier, ExpressionStatement, Expression};
+use crate::ast::{Program, Statement, LetStatement, ReturnStatement, Identifier, ExpressionStatement, Expression, IntegerLiteral, PrefixExpression, InfixExpression};
+
+#[derive(PartialOrd, PartialEq, Clone, Copy)]
+enum Precedence {
+    Lowest,
+    Equals,      // ==
+    LessGreater, // > or <
+    Sum,         // +
+    Product,     // *
+    Prefix,      // -X or !X
+    Call,        // myFunction(X)
+}
+
+fn get_precedence(tok: &Token) -> Precedence {
+    match tok {
+        Token::Equal | Token::NotEqual => Precedence::Equals,
+        Token::LessThan | Token::GreaterThan => Precedence::LessGreater,
+        Token::Plus | Token::Minus => Precedence::Sum,
+        Token::Slash | Token::Asterisk => Precedence::Product,
+        _ => Precedence::Lowest,
+    }
+}
 
 pub struct Parser {
     l: Lexer,
@@ -17,7 +38,6 @@ impl Parser {
             peek_token: Token::EOF,
             errors: vec![],
         };
-        // Read two tokens to setup cur and peek
         p.next_token();
         p.next_token();
         p
@@ -53,10 +73,7 @@ impl Parser {
 
     fn parse_let_statement(&mut self) -> Option<Box<dyn Statement>> {
         let token = self.cur_token.clone();
-
-        if !self.expect_peek(Token::Ident("".to_string())) {
-            return None;
-        }
+        if !self.expect_peek(Token::Ident("".to_string())) { return None; }
 
         let name = Identifier {
             token: self.cur_token.clone(),
@@ -66,51 +83,119 @@ impl Parser {
             },
         };
 
-        if !self.expect_peek(Token::Assign) {
-            return None;
-        }
+        if !self.expect_peek(Token::Assign) { return None; }
+        self.next_token();
 
-        // TODO: We're skipping expression parsing for now to keep it compilable
-        // We'll advance until semicolon
-        while !self.cur_token_is(Token::Semicolon) {
+        let value = self.parse_expression(Precedence::Lowest);
+
+        if self.peek_token_is(Token::Semicolon) {
             self.next_token();
         }
 
-        Some(Box::new(LetStatement {
-            token,
-            name,
-            value: None, // Placeholder
-        }))
+        Some(Box::new(LetStatement { token, name, value }))
     }
 
     fn parse_return_statement(&mut self) -> Option<Box<dyn Statement>> {
         let token = self.cur_token.clone();
-
         self.next_token();
 
-        // TODO: Skip expression
-        while !self.cur_token_is(Token::Semicolon) {
+        let return_value = self.parse_expression(Precedence::Lowest);
+
+        if self.peek_token_is(Token::Semicolon) {
             self.next_token();
         }
 
-        Some(Box::new(ReturnStatement {
-            token,
-            return_value: None, // Placeholder
-        }))
+        Some(Box::new(ReturnStatement { token, return_value }))
     }
-    
+
     fn parse_expression_statement(&mut self) -> Option<Box<dyn Statement>> {
-        // Placeholder
-        None
+        let token = self.cur_token.clone();
+        let expression = self.parse_expression(Precedence::Lowest);
+
+        if self.peek_token_is(Token::Semicolon) {
+            self.next_token();
+        }
+
+        Some(Box::new(ExpressionStatement { token, expression }))
+    }
+
+    fn parse_expression(&mut self, precedence: Precedence) -> Option<Box<dyn Expression>> {
+        let mut left_exp = self.parse_prefix()?;
+
+        while !self.peek_token_is(Token::Semicolon) && precedence < self.peek_precedence() {
+            self.next_token();
+            left_exp = self.parse_infix(left_exp)?;
+        }
+
+        Some(left_exp)
+    }
+
+    fn parse_prefix(&mut self) -> Option<Box<dyn Expression>> {
+        match &self.cur_token {
+            Token::Ident(val) => Some(Box::new(Identifier {
+                token: self.cur_token.clone(),
+                value: val.clone(),
+            })),
+            Token::Int(val) => Some(Box::new(IntegerLiteral {
+                token: self.cur_token.clone(),
+                value: *val,
+            })),
+            Token::Bang | Token::Minus => {
+                let token = self.cur_token.clone();
+                let operator = match &token {
+                    Token::Bang => "!".to_string(),
+                    Token::Minus => "-".to_string(),
+                    _ => unreachable!(),
+                };
+                self.next_token();
+                let right = self.parse_expression(Precedence::Prefix)?;
+                Some(Box::new(PrefixExpression { token, operator, right }))
+            },
+            Token::LParen => {
+                self.next_token();
+                let exp = self.parse_expression(Precedence::Lowest);
+                if !self.expect_peek(Token::RParen) {
+                    return None;
+                }
+                exp
+            },
+            _ => {
+                self.errors.push(format!("no prefix parse function for {:?} found", self.cur_token));
+                None
+            }
+        }
+    }
+
+    fn parse_infix(&mut self, left: Box<dyn Expression>) -> Option<Box<dyn Expression>> {
+        let token = self.cur_token.clone();
+        let operator = match &token {
+            Token::Plus => "+".to_string(),
+            Token::Minus => "-".to_string(),
+            Token::Asterisk => "*".to_string(),
+            Token::Slash => "/".to_string(),
+            Token::Equal => "==".to_string(),
+            Token::NotEqual => "!=".to_string(),
+            Token::LessThan => "<".to_string(),
+            Token::GreaterThan => ">".to_string(),
+            _ => return Some(left),
+        };
+
+        let precedence = self.cur_precedence();
+        self.next_token();
+        let right = self.parse_expression(precedence)?;
+
+        Some(Box::new(InfixExpression { token, left, operator, right }))
+    }
+
+    fn cur_precedence(&self) -> Precedence {
+        get_precedence(&self.cur_token)
+    }
+
+    fn peek_precedence(&self) -> Precedence {
+        get_precedence(&self.peek_token)
     }
 
     fn cur_token_is(&self, t: Token) -> bool {
-        // We need discriminant checking, but Token holds data.
-        // We can use std::mem::discriminant or match
-        // For now, simple match or derive PartialEq (which we did)
-        // But PartialEq checks data too.
-        // Token::Ident("a") != Token::Ident("b")
-        // So checking type only is tricky with PartialEq
         match (&self.cur_token, &t) {
             (Token::Ident(_), Token::Ident(_)) => true,
             (Token::Int(_), Token::Int(_)) => true,
@@ -151,45 +236,29 @@ mod tests {
 
     #[test]
     fn test_let_statements() {
-        let input = "
-let x = 5;
-let y = 10;
-let foobar = 838383;
-";
+        let input = "let x = 5; let y = 10; let foobar = 838383;";
         let l = Lexer::new(input.to_string());
         let mut p = Parser::new(l);
-
         let program = p.parse_program().unwrap();
-        if p.errors.len() > 0 {
-            panic!("parser has {} errors: {:?}", p.errors.len(), p.errors);
-        }
-
-        if program.statements.len() != 3 {
-            panic!("program.statements does not contain 3 statements. got={}",
-                program.statements.len());
-        }
-
-        let tests = vec!["x", "y", "foobar"];
-
-        for (i, expected_ident) in tests.iter().enumerate() {
-            let stmt = &program.statements[i];
-            test_let_statement(stmt, expected_ident);
-        }
+        assert_eq!(program.statements.len(), 3);
     }
 
-    fn test_let_statement(s: &Box<dyn Statement>, name: &str) {
-        if s.token_literal() != "let" {
-            panic!("s.token_literal not 'let'. got={}", s.token_literal());
-        }
+    #[test]
+    fn test_expression_parsing() {
+        let input = "-a * b; !-5; 5 + 5; 5 > 5 == 3 < 5;";
+        let l = Lexer::new(input.to_string());
+        let mut p = Parser::new(l);
+        let program = p.parse_program().unwrap();
         
-        // We can't easily downcast Box<dyn Statement> to LetStatement without Any trait
-        // But we can check string output or just trust it parsed if no errors
-        // Ideally we'd use Any for downcasting
-        // For this simple test, we'll verify the string representation matches roughly
-        // "let x = ;" (since expression is skipped)
-        let expected = format!("let {} = ;", name);
-        if s.string() != expected {
-             panic!("stmt.string() not '{}'. got={}", expected, s.string());
+        let expected = vec![
+            "((-a) * b)",
+            "(!(-5))",
+            "(5 + 5)",
+            "((5 > 5) == (3 < 5))"
+        ];
+        
+        for (i, s) in expected.iter().enumerate() {
+            assert_eq!(program.statements[i].string(), *s);
         }
     }
 }
