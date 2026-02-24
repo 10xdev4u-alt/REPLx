@@ -38,8 +38,7 @@ pub const Lexer = struct {
     }
 
     fn skipWhitespace(self: *Lexer) void {
-        while (self.ch == ' ' or self.ch == '	' or self.ch == '
-' or self.ch == '') {
+        while (self.ch == ' ' or self.ch == '\t' or self.ch == '\n' or self.ch == '\r') {
             self.readChar();
         }
     }
@@ -47,41 +46,50 @@ pub const Lexer = struct {
     pub fn nextToken(self: *Lexer) Token {
         self.skipWhitespace();
 
-        var tok = Token{ .type = .ILLEGAL, .literal = "" };
+        var tok: Token = undefined;
 
         switch (self.ch) {
             '=' => {
                 if (self.peekChar() == '=') {
-                    const ch = self.ch;
-                    self.readChar();
-                    const literal = self.input[self.position-1 .. self.read_position];
-                    tok = Token{ .type = .EQ, .literal = literal };
+                    const start = self.position;
+                    self.readChar(); // consume first =
+                    // self.ch is now second =. pos points to it.
+                    // literal is "==".
+                    // Wait, readChar advances pos.
+                    // Initial: pos points to first =.
+                    // readChar: pos points to second =.
+                    // But we want slice covering both.
+                    // Actually, let's keep it simple.
+                    // current pos is first =.
+                    self.readChar(); // consume second =
+                    tok = Token{ .type = .EQ, .literal = self.input[start .. self.position + 1] };
+                    // Wait, logic is tricky with indices.
+                    // Let's rely on explicit chars for known operators.
+                    tok = Token{ .type = .EQ, .literal = "==" };
                 } else {
-                    tok = newToken(.ASSIGN, self.ch);
+                    tok = Token{ .type = .ASSIGN, .literal = "=" };
                 }
             },
-            '+' => tok = newToken(.PLUS, self.ch),
-            '-' => tok = newToken(.MINUS, self.ch),
+            '+' => tok = Token{ .type = .PLUS, .literal = "+" },
+            '-' => tok = Token{ .type = .MINUS, .literal = "-" },
             '!' => {
                 if (self.peekChar() == '=') {
-                    const ch = self.ch;
                     self.readChar();
-                    const literal = self.input[self.position-1 .. self.read_position];
-                    tok = Token{ .type = .NOT_EQ, .literal = literal };
+                    tok = Token{ .type = .NOT_EQ, .literal = "!=" };
                 } else {
-                    tok = newToken(.BANG, self.ch);
+                    tok = Token{ .type = .BANG, .literal = "!" };
                 }
             },
-            '/' => tok = newToken(.SLASH, self.ch),
-            '*' => tok = newToken(.ASTERISK, self.ch),
-            '<' => tok = newToken(.LT, self.ch),
-            '>' => tok = newToken(.GT, self.ch),
-            ';' => tok = newToken(.SEMICOLON, self.ch),
-            ',' => tok = newToken(.COMMA, self.ch),
-            '(' => tok = newToken(.LPAREN, self.ch),
-            ')' => tok = newToken(.RPAREN, self.ch),
-            '{' => tok = newToken(.LBRACE, self.ch),
-            '}' => tok = newToken(.RBRACE, self.ch),
+            '/' => tok = Token{ .type = .SLASH, .literal = "/" },
+            '*' => tok = Token{ .type = .ASTERISK, .literal = "*" },
+            '<' => tok = Token{ .type = .LT, .literal = "<" },
+            '>' => tok = Token{ .type = .GT, .literal = ">" },
+            ';' => tok = Token{ .type = .SEMICOLON, .literal = ";" },
+            ',' => tok = Token{ .type = .COMMA, .literal = "," },
+            '(' => tok = Token{ .type = .LPAREN, .literal = "(" },
+            ')' => tok = Token{ .type = .RPAREN, .literal = ")" },
+            '{' => tok = Token{ .type = .LBRACE, .literal = "{" },
+            '}' => tok = Token{ .type = .RBRACE, .literal = "}" },
             '"' => {
                 tok.type = .STRING;
                 tok.literal = self.readString();
@@ -100,7 +108,7 @@ pub const Lexer = struct {
                     tok.literal = self.readNumber();
                     return tok;
                 } else {
-                    tok = newToken(.ILLEGAL, self.ch);
+                    tok = Token{ .type = .ILLEGAL, .literal = "" };
                 }
             },
         }
@@ -109,22 +117,6 @@ pub const Lexer = struct {
         return tok;
     }
 
-    fn newToken(token_type: TokenType, ch: u8) Token {
-        // We can't return slice of local char easily without pointing to input
-        // But for single chars, we can just point to input at current position?
-        // Wait, self.ch is a copy.
-        // We need to return slice of self.input.
-        // Since newToken is called before readChar(), self.position points to the char.
-        // But wait, we need access to 'self' to slice input.
-        // The helper 'newToken' as written in Go/Rust was simple because it owned the data or copied.
-        // Here, I need to slice input.
-        // So I'll inline the logic or pass slice.
-        return Token{ .type = token_type, .literal = "" }; // Placeholder, fixed in call sites?
-    }
-    
-    // Fix: newToken should take the slice, not char.
-    // Or simpler: just inline it in the switch.
-    
     fn readIdentifier(self: *Lexer) []const u8 {
         const position = self.position;
         while (isLetter(self.ch)) {
@@ -154,18 +146,9 @@ pub const Lexer = struct {
 };
 
 fn isLetter(ch: u8) bool {
-    return (ch >= 'a' and ch <= 'z') or (ch >= 'A' and ch <= 'Z') or ch == '_';
+    return std.ascii.isAlphabetic(ch) or ch == '_';
 }
 
 fn isDigit(ch: u8) bool {
-    return ch >= '0' and ch <= '9';
-}
-
-fn newToken(token_type: TokenType, ch: u8) Token {
-    // This helper is problematic for Zero-Copy if we want the literal to be from input.
-    // But wait, single char tokens are always valid as long as we don't care about the literal for them?
-    // Actually, for parser, we usually check type.
-    // But for printing "Echo: {literal}", we need it.
-    // So I should fix the switch cases to slice input.
-    return Token{ .type = token_type, .literal = "" }; 
+    return std.ascii.isDigit(ch);
 }
