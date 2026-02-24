@@ -21,6 +21,10 @@ pub enum Token {
     Bang,
     Asterisk,
     Slash,
+    Equal,
+    NotEqual,
+    LessThan,
+    GreaterThan,
     
     // Delimiters
     Comma,

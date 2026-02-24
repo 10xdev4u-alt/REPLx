@@ -47,18 +47,37 @@ impl Lexer {
         self.skip_whitespace();
 
         let tok = match self.ch {
-            '=' => Token::Assign,
+            '=' => {
+                if self.peek_char() == '=' {
+                    self.read_char();
+                    Token::Equal
+                } else {
+                    Token::Assign
+                }
+            },
             '+' => Token::Plus,
             '-' => Token::Minus,
-            '!' => Token::Bang,
+            '!' => {
+                if self.peek_char() == '=' {
+                    self.read_char();
+                    Token::NotEqual
+                } else {
+                    Token::Bang
+                }
+            },
             '*' => Token::Asterisk,
             '/' => Token::Slash,
+            '<' => Token::LessThan,
+            '>' => Token::GreaterThan,
             ',' => Token::Comma,
             ';' => Token::Semicolon,
             '(' => Token::LParen,
             ')' => Token::RParen,
             '{' => Token::LBrace,
             '}' => Token::RBrace,
+            '"' => {
+                Token::String(self.read_string())
+            },
             '\0' => Token::EOF,
             _ => {
                 if self.ch.is_alphabetic() || self.ch == '_' {
@@ -66,7 +85,6 @@ impl Lexer {
                     return Token::lookup_ident(&literal);
                 } else if self.ch.is_numeric() {
                     let literal = self.read_number();
-                    // Assuming i64 for simplicity
                     return Token::Int(literal.parse().unwrap());
                 } else {
                     Token::Illegal
@@ -76,6 +94,17 @@ impl Lexer {
 
         self.read_char();
         tok
+    }
+
+    fn read_string(&mut self) -> String {
+        let position = self.position + 1;
+        loop {
+            self.read_char();
+            if self.ch == '"' || self.ch == '\0' {
+                break;
+            }
+        }
+        self.input[position..self.position].iter().collect()
     }
 
     fn read_identifier(&mut self) -> String {
