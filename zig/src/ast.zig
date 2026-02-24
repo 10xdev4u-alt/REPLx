@@ -1,14 +1,13 @@
 const std = @import("std");
 const Token = @import("token.zig").Token;
 
+// Node is a tagged union representing any AST node
 pub const Node = union(enum) {
-    Program: *Program,
-    Statement: *Statement,
-    Expression: *Expression,
+    Statement: Statement,
+    Expression: Expression,
     
     pub fn tokenLiteral(self: Node) []const u8 {
         switch (self) {
-            .Program => |p| return p.tokenLiteral(),
             .Statement => |s| return s.tokenLiteral(),
             .Expression => |e| return e.tokenLiteral(),
         }
@@ -16,7 +15,6 @@ pub const Node = union(enum) {
     
     pub fn string(self: Node, allocator: std.mem.Allocator) ![]u8 {
         switch (self) {
-            .Program => |p| return p.string(allocator),
             .Statement => |s| return s.string(allocator),
             .Expression => |e| return e.string(allocator),
         }
@@ -63,10 +61,12 @@ pub const Expression = union(enum) {
 
 pub const Program = struct {
     statements: std.ArrayList(Statement),
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Program {
         return Program{
             .statements = std.ArrayList(Statement).init(allocator),
+            .allocator = allocator,
         };
     }
 
@@ -82,13 +82,13 @@ pub const Program = struct {
         }
     }
 
-    pub fn string(self: *Program, allocator: std.mem.Allocator) ![]u8 {
-        var list = std.ArrayList(u8).init(allocator);
+    pub fn string(self: *Program) ![]u8 {
+        var list = std.ArrayList(u8).init(self.allocator);
         defer list.deinit();
 
         for (self.statements.items) |stmt| {
-            const s = try stmt.string(allocator);
-            defer allocator.free(s);
+            const s = try stmt.string(self.allocator);
+            defer self.allocator.free(s);
             try list.appendSlice(s);
         }
         return list.toOwnedSlice();
