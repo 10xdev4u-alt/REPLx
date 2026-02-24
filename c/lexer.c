@@ -6,6 +6,7 @@
 
 // Helper: Duplicate string (safe copy)
 char *str_copy(const char *s) {
+    if (!s) return NULL;
     char *d = malloc(strlen(s) + 1);
     if (d) strcpy(d, s);
     return d;
@@ -14,22 +15,28 @@ char *str_copy(const char *s) {
 // Helper: Create single char string
 char *char_to_str(char c) {
     char *s = malloc(2);
-    s[0] = c;
-    s[1] = '\0';
+    if (s) {
+        s[0] = c;
+        s[1] = '\0';
+    }
     return s;
 }
 
 Lexer *new_lexer(const char *input) {
     Lexer *l = malloc(sizeof(Lexer));
+    if (!l) return NULL;
+    
     l->input = str_copy(input);
     l->read_position = 0;
     l->position = 0;
     
     // Initial read
-    if (l->read_position >= (int)strlen(l->input)) {
+    if (l->input && l->read_position >= (int)strlen(l->input)) {
         l->ch = 0;
-    } else {
+    } else if (l->input) {
         l->ch = l->input[l->read_position];
+    } else {
+        l->ch = 0;
     }
     l->position = l->read_position;
     l->read_position++;
@@ -39,7 +46,7 @@ Lexer *new_lexer(const char *input) {
 
 void free_lexer(Lexer *l) {
     if (l) {
-        free(l->input);
+        if (l->input) free(l->input);
         free(l);
     }
 }
@@ -51,7 +58,7 @@ void free_token(Token t) {
 }
 
 void read_char(Lexer *l) {
-    if (l->read_position >= (int)strlen(l->input)) {
+    if (!l->input || l->read_position >= (int)strlen(l->input)) {
         l->ch = 0;
     } else {
         l->ch = l->input[l->read_position];
@@ -61,7 +68,7 @@ void read_char(Lexer *l) {
 }
 
 char peek_char(Lexer *l) {
-    if (l->read_position >= (int)strlen(l->input)) {
+    if (!l->input || l->read_position >= (int)strlen(l->input)) {
         return 0;
     } else {
         return l->input[l->read_position];
@@ -69,8 +76,7 @@ char peek_char(Lexer *l) {
 }
 
 void skip_whitespace(Lexer *l) {
-    while (l->ch == ' ' || l->ch == '	' || l->ch == '
-' || l->ch == '') {
+    while (l->ch == ' ' || l->ch == '\t' || l->ch == '\n' || l->ch == '\r') {
         read_char(l);
     }
 }
@@ -91,8 +97,10 @@ char *read_identifier(Lexer *l) {
     
     int len = l->position - start_pos;
     char *ident = malloc(len + 1);
-    memcpy(ident, l->input + start_pos, len);
-    ident[len] = '\0';
+    if (ident) {
+        memcpy(ident, l->input + start_pos, len);
+        ident[len] = '\0';
+    }
     return ident;
 }
 
@@ -104,12 +112,15 @@ char *read_number(Lexer *l) {
     
     int len = l->position - start_pos;
     char *num = malloc(len + 1);
-    memcpy(num, l->input + start_pos, len);
-    num[len] = '\0';
+    if (num) {
+        memcpy(num, l->input + start_pos, len);
+        num[len] = '\0';
+    }
     return num;
 }
 
 TokenType lookup_ident(const char *ident) {
+    if (!ident) return TOKEN_ILLEGAL;
     if (strcmp(ident, "fn") == 0) return TOKEN_FUNCTION;
     if (strcmp(ident, "let") == 0) return TOKEN_LET;
     if (strcmp(ident, "true") == 0) return TOKEN_TRUE;
@@ -122,6 +133,10 @@ TokenType lookup_ident(const char *ident) {
 
 Token next_token(Lexer *l) {
     Token tok;
+    // Initialize default
+    tok.type = TOKEN_ILLEGAL;
+    tok.literal = NULL;
+
     skip_whitespace(l);
 
     switch (l->ch) {
@@ -201,7 +216,7 @@ Token next_token(Lexer *l) {
             if (is_letter(l->ch)) {
                 tok.literal = read_identifier(l);
                 tok.type = lookup_ident(tok.literal);
-                return tok; // Early return to skip read_char
+                return tok; // Early return
             } else if (is_digit_char(l->ch)) {
                 tok.type = TOKEN_INT;
                 tok.literal = read_number(l);
