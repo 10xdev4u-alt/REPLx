@@ -6,6 +6,8 @@ import (
 	"os"
 
 	"github.com/chzyer/readline"
+	"github.com/princetheprogrammerbtw/replngne/go/lexer"
+	"github.com/princetheprogrammerbtw/replngne/go/token"
 )
 
 func main() {
@@ -21,7 +23,7 @@ func main() {
 	}
 	defer rl.Close()
 
-	fmt.Println("REPLngne (Go Edition)")
+	fmt.Println("REPLngne (Go Edition) - v0.1.0")
 	fmt.Println("Type 'exit' or Ctrl+D to quit")
 
 	for {
@@ -36,8 +38,14 @@ func main() {
 			break
 		}
 
-		line = line // For now, just echo
-		fmt.Printf("Input: %s\n", line)
+		l := lexer.New(line)
+		for {
+			tok := l.NextToken()
+			if tok.Type == token.EOF {
+				break
+			}
+			fmt.Printf("%+v\n", tok)
+		}
 	}
 	os.Exit(0)
 }
