@@ -13,7 +13,6 @@ pub fn main() !void {
 
     var buffer: [1024]u8 = undefined;
 
-    // Use ArenaAllocator for easy cleanup of AST nodes per loop iteration
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -27,20 +26,21 @@ pub fn main() !void {
             if (std.mem.endsWith(u8, line, "\r")) {
                 trimmed_line = line[0 .. line.len - 1];
             }
+            if (std.mem.endsWith(u8, trimmed_line, "\r")) {
+                trimmed_line = trimmed_line[0 .. trimmed_line.len - 1];
+            }
 
             if (std.mem.eql(u8, trimmed_line, "exit")) {
                 break;
             }
 
+            // Create Arena for this REPL cycle
             var arena = std.heap.ArenaAllocator.init(allocator);
             defer arena.deinit();
             const arena_allocator = arena.allocator();
 
-            var lexer = Lexer.new(trimmed_line);
+            const lexer = Lexer.new(trimmed_line);
             var parser = Parser.init(lexer, arena_allocator);
-            
-            // Parser itself might allocate errors, let's use arena for everything in parser?
-            // Yes, passing arena_allocator to Parser.init is best.
             
             var program = try parser.parseProgram();
             
@@ -52,7 +52,6 @@ pub fn main() !void {
             } else {
                 const progStr = try program.string();
                 try stdout.print("{s}\n", .{progStr});
-                // Program string is allocated in arena, so it will be freed.
             }
 
         } else {
