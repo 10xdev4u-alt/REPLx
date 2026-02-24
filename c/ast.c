@@ -12,6 +12,10 @@ char *ast_str_copy(const char *s) {
 }
 
 // --- Forward Declarations ---
+// We need these to assign to function pointers.
+// The types in ASTNode are: char *(*token_literal)(struct ASTNode *);
+// So our functions must match: char *func(struct ASTNode *node);
+
 char *program_token_literal(struct ASTNode *node);
 char *program_string(struct ASTNode *node);
 void free_program(struct ASTNode *node);
@@ -32,6 +36,7 @@ char *expression_statement_token_literal(struct ASTNode *node);
 char *expression_statement_string(struct ASTNode *node);
 void free_expression_statement(struct ASTNode *node);
 
+
 // --- Program ---
 void free_program(struct ASTNode *node) {
     Program *p = (Program *)node;
@@ -51,7 +56,7 @@ char *program_token_literal(struct ASTNode *node) {
     if (p->statement_count > 0 && p->statements[0]->token_literal) {
         return p->statements[0]->token_literal((ASTNode*)p->statements[0]);
     }
-    return "";
+    return ast_str_copy("");
 }
 
 char *program_string(struct ASTNode *node) {
@@ -93,23 +98,20 @@ void program_append(Program *p, Statement *stmt) {
 // --- Identifier ---
 void free_identifier(struct ASTNode *node) {
     Identifier *i = (Identifier *)node;
-    // Token is a value, literal is a pointer.
-    // Wait, Token struct has a char *literal.
-    // ASTNode constructors should take ownership or copy?
-    // Usually Lexer owns string, but we pass Token by value.
-    // Token.literal points to malloced memory from lexer.
-    // If we duplicate it in constructor, we are safe.
-    // But currently new_identifier takes Token by value.
-    // We should probably free the token literal if we own it.
-    // In C implementation: Token literal is malloced.
-    free_token(i->token);
+    // We do NOT free token literal here because tokens are usually passed by value/copy
+    // but the literal pointer inside token might be shared or owned.
+    // In our lexer, we malloc literal.
+    // So we should free it if we own it.
+    // But currently token struct is simple value.
+    // Let's assume ownership for now to avoid leaks.
+    if (i->token.literal) free(i->token.literal);
     if (i->value) free(i->value);
     free(i);
 }
 
 char *identifier_token_literal(struct ASTNode *node) {
     Identifier *i = (Identifier *)node;
-    return i->token.literal;
+    return ast_str_copy(i->token.literal);
 }
 
 char *identifier_string(struct ASTNode *node) {
@@ -131,7 +133,7 @@ Identifier *new_identifier(Token token, char *value) {
 // --- LetStatement ---
 void free_let_statement(struct ASTNode *node) {
     LetStatement *ls = (LetStatement *)node;
-    free_token(ls->token);
+    if (ls->token.literal) free(ls->token.literal);
     if (ls->name && ls->name->base.free) ls->name->base.free((ASTNode*)ls->name);
     if (ls->value && ls->value->free) ls->value->free((ASTNode*)ls->value);
     free(ls);
@@ -139,15 +141,15 @@ void free_let_statement(struct ASTNode *node) {
 
 char *let_statement_token_literal(struct ASTNode *node) {
     LetStatement *ls = (LetStatement *)node;
-    return ls->token.literal;
+    return ast_str_copy(ls->token.literal);
 }
 
 char *let_statement_string(struct ASTNode *node) {
     LetStatement *ls = (LetStatement *)node;
-    char *out = malloc(1024); // Dangerous fixed size
+    char *out = malloc(1024);
     out[0] = '\0';
     if (ls->token.literal) {
-        strcpy(out, ls->token.literal);
+        strcat(out, ls->token.literal);
         strcat(out, " ");
     }
     
@@ -182,14 +184,14 @@ LetStatement *new_let_statement(Token token) {
 // --- ReturnStatement ---
 void free_return_statement(struct ASTNode *node) {
     ReturnStatement *rs = (ReturnStatement *)node;
-    free_token(rs->token);
+    if (rs->token.literal) free(rs->token.literal);
     if (rs->return_value && rs->return_value->free) rs->return_value->free((ASTNode*)rs->return_value);
     free(rs);
 }
 
 char *return_statement_token_literal(struct ASTNode *node) {
     ReturnStatement *rs = (ReturnStatement *)node;
-    return rs->token.literal;
+    return ast_str_copy(rs->token.literal);
 }
 
 char *return_statement_string(struct ASTNode *node) {
@@ -197,7 +199,7 @@ char *return_statement_string(struct ASTNode *node) {
     char *out = malloc(1024);
     out[0] = '\0';
     if (rs->token.literal) {
-        strcpy(out, rs->token.literal);
+        strcat(out, rs->token.literal);
         strcat(out, " ");
     }
     if (rs->return_value && rs->return_value->string) {
@@ -223,14 +225,14 @@ ReturnStatement *new_return_statement(Token token) {
 // --- ExpressionStatement ---
 void free_expression_statement(struct ASTNode *node) {
     ExpressionStatement *es = (ExpressionStatement *)node;
-    free_token(es->token);
+    if (es->token.literal) free(es->token.literal);
     if (es->expression && es->expression->free) es->expression->free((ASTNode*)es->expression);
     free(es);
 }
 
 char *expression_statement_token_literal(struct ASTNode *node) {
     ExpressionStatement *es = (ExpressionStatement *)node;
-    return es->token.literal;
+    return ast_str_copy(es->token.literal);
 }
 
 char *expression_statement_string(struct ASTNode *node) {
