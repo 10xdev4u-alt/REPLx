@@ -139,6 +139,7 @@ ReturnStatement *parse_return_statement(Parser *p) {
 }
 
 ExpressionStatement *parse_expression_statement(Parser *p) {
+    (void)p;
     // Placeholder: consume tokens to avoid infinite loop
     // But return NULL for now as we don't have Expressions
     return NULL; 
