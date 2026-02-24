@@ -19,6 +19,7 @@ pub const Parser = struct {
             .errors = std.ArrayList([]const u8).init(allocator),
             .allocator = allocator,
         };
+        // Read two tokens
         p.nextToken();
         p.nextToken();
         return p;
@@ -58,15 +59,14 @@ pub const Parser = struct {
     }
 
     fn parseLetStatement(self: *Parser) !?ast.Statement {
-        const stmt = try self.allocator.create(ast.LetStatement);
+        var stmt = try self.allocator.create(ast.LetStatement);
         stmt.token = self.cur_token;
 
         if (!self.expectPeek(.IDENT)) {
-            // Error handled in expectPeek
             return null;
         }
-        
-        const ident = try self.allocator.create(ast.Identifier);
+
+        var ident = try self.allocator.create(ast.Identifier);
         ident.token = self.cur_token;
         ident.value = self.cur_token.literal;
         stmt.name = ident;
@@ -75,8 +75,7 @@ pub const Parser = struct {
             return null;
         }
 
-        // TODO: Skip expressions
-        while (!self.curTokenIs(.SEMICOLON)) {
+        while (!self.curTokenIs(.SEMICOLON) and !self.curTokenIs(.EOF)) {
             self.nextToken();
         }
         
@@ -86,13 +85,12 @@ pub const Parser = struct {
     }
 
     fn parseReturnStatement(self: *Parser) !?ast.Statement {
-        const stmt = try self.allocator.create(ast.ReturnStatement);
+        var stmt = try self.allocator.create(ast.ReturnStatement);
         stmt.token = self.cur_token;
 
         self.nextToken();
 
-        // TODO: Skip expressions
-        while (!self.curTokenIs(.SEMICOLON)) {
+        while (!self.curTokenIs(.SEMICOLON) and !self.curTokenIs(.EOF)) {
             self.nextToken();
         }
         
@@ -102,7 +100,10 @@ pub const Parser = struct {
     }
     
     fn parseExpressionStatement(self: *Parser) !?ast.Statement {
-        // Placeholder
+        // Placeholder: consume until semicolon to avoid infinite loop
+        while (!self.curTokenIs(.SEMICOLON) and !self.curTokenIs(.EOF)) {
+            self.nextToken();
+        }
         return null;
     }
 
