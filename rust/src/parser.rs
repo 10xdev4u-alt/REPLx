@@ -143,3 +143,53 @@ impl Parser {
         self.errors.push(msg);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer::Lexer;
+
+    #[test]
+    fn test_let_statements() {
+        let input = "
+let x = 5;
+let y = 10;
+let foobar = 838383;
+";
+        let l = Lexer::new(input.to_string());
+        let mut p = Parser::new(l);
+
+        let program = p.parse_program().unwrap();
+        if p.errors.len() > 0 {
+            panic!("parser has {} errors: {:?}", p.errors.len(), p.errors);
+        }
+
+        if program.statements.len() != 3 {
+            panic!("program.statements does not contain 3 statements. got={}",
+                program.statements.len());
+        }
+
+        let tests = vec!["x", "y", "foobar"];
+
+        for (i, expected_ident) in tests.iter().enumerate() {
+            let stmt = &program.statements[i];
+            test_let_statement(stmt, expected_ident);
+        }
+    }
+
+    fn test_let_statement(s: &Box<dyn Statement>, name: &str) {
+        if s.token_literal() != "let" {
+            panic!("s.token_literal not 'let'. got={}", s.token_literal());
+        }
+        
+        // We can't easily downcast Box<dyn Statement> to LetStatement without Any trait
+        // But we can check string output or just trust it parsed if no errors
+        // Ideally we'd use Any for downcasting
+        // For this simple test, we'll verify the string representation matches roughly
+        // "let x = ;" (since expression is skipped)
+        let expected = format!("let {} = ;", name);
+        if s.string() != expected {
+             panic!("stmt.string() not '{}'. got={}", expected, s.string());
+        }
+    }
+}
